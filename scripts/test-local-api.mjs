@@ -68,5 +68,38 @@ const crewA = await call('game', { challengeId: made.data.challenge.id });
 const crewB = await call('game', { challengeId: made.data.challenge.id });
 assert.equal(crewA.data.question.id, crewB.data.question.id, 'every crew member gets the same first brewery');
 
+// Place filters: every brewery in a filtered practice flight sits inside the chosen place.
+const meta = JSON.parse((await import('node:fs')).readFileSync(new URL('../site/local-api/meta.json', import.meta.url), 'utf8'));
+const { t: breweries } = await import(fileURLToPath(new URL('../site/local-api/game.js', import.meta.url)));
+const byId = new Map(breweries.map((b) => [b.id, b]));
+async function placeFlight(place) {
+  const res = await call('game', { mode: 'practice', country: place, settings: {} });
+  assert.equal(res.status, 201, `flight for ${place}: ${JSON.stringify(res.data)}`);
+  const ids = [res.data.question.id];
+  let game = res.data;
+  for (let round = 0; round < 5; round++) {
+    const g = await call('guess', { id: game.id, round, lat: 0, lng: 0 });
+    ids[round] = g.data.result.brewery.id;
+    game = g.data.game;
+  }
+  return ids.map((id) => byId.get(id));
+}
+for (const b of await placeFlight('Europe')) assert.equal(meta.continents[b.country], 'Europe');
+for (const b of await placeFlight('Europe › Germany')) assert.equal(b.country, 'Germany');
+for (const b of await placeFlight('Europe › Germany › Bavaria')) assert.equal(meta.regions[b.id], 'Bavaria');
+for (const b of await placeFlight('North America › United States › Colorado › Denver')) assert.equal(b.city, 'Denver');
+for (const b of await placeFlight('Germany')) assert.equal(b.country, 'Germany', 'bare country names still work');
+assert.equal((await call('game', { mode: 'practice', country: 'Europe › Czechia', settings: {} })).status, 400, 'fewer than five breweries');
+
+// GABF: a scored result carries the brewery's medal summary and region.
+const medalist = Object.keys(meta.gabf).find((id) => byId.has(id) && meta.regions[id]);
+const state = JSON.parse(store.get('maptap:pages:v1'));
+const rigged = { ...Object.values(state.games)[0], id: 'gabf-check', round: 0, total: 0, results: [], finishedAt: null, breweryIds: [medalist, ...Object.values(state.games)[0].breweryIds.slice(1)] };
+state.games['gabf-check'] = rigged;
+store.set('maptap:pages:v1', JSON.stringify(state));
+const scored = await call('guess', { id: 'gabf-check', round: 0, lat: 0, lng: 0 });
+assert.equal(scored.data.result.brewery.gabf.slug, meta.gabf[medalist].slug);
+assert.equal(scored.data.result.brewery.region, meta.regions[medalist]);
+
 assert.equal((await call('unknown')).status, 404);
 console.log('local api: all checks passed');
