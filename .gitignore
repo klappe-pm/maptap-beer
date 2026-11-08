@@ -1,0 +1,12 @@
+site/
+node_modules/
+
+# The release bundle lives under _next/, which the global ignore excludes.
+!release/client/_next/
+.DS_Store
+
+# AgentsRoom and local agent configuration
+.agentsroom/
+.claude/
+.mcp.json
+local/
